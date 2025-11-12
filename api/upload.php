@@ -9,7 +9,7 @@ if (!isset($_FILES['file'])) {
 }
 
 // Cria diretório de uploads, se não existir
-$uploadDir = __DIR__ . '/../importedCSvs/';
+$uploadDir = __DIR__ . '/../importedCSVs/';
 if (!file_exists($uploadDir)) {
     mkdir($uploadDir, 0777, true);
 }
