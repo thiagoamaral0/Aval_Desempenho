@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  web:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: meu-apache-php
+    ports:
+      - "80:80"
+    volumes:
+      - ./site:/var/www/html
+    depends_on:
+      - database
+    environment:
+      - DB_HOST=database
+      - DB_NAME=wifiscan
+      - DB_USER=meuusuario
+      - DB_PASS=minhasenha
+
+  database:
+    image: mysql:8.0
+    container_name: meu-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: senha_root
+      MYSQL_DATABASE: wifiscan
+      MYSQL_USER: meuusuario
+      MYSQL_PASSWORD: minhasenha
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: 
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: meu-phpmyadmin
+    environment:
+      PMA_HOST: database
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: senha_root
+    ports:
+      - "8080:80"
+    depends_on:
+      - database
+
+volumes:
+  db_data:

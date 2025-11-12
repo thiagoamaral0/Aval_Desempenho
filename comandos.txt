@@ -1,0 +1,17 @@
+cd /d C:\Users\Thiago\Downloads
+
+cd meu-servidor-web
+
+docker-compose up -d
+
+docker-compose down
+
+http://localhost/ - Dashboard com botão de limpar
+
+http://localhost/limpar.php - Página dedicada para limpar o banco
+
+http://localhost/importar.php - Importar CSV
+
+http://localhost/scan.php - Ver dados
+
+http://localhost/estatisticas.php - Estatísticas
