@@ -10,7 +10,7 @@ services:
       - "80:80"
     volumes:
       - ./site:/var/www/html
-      - ./uploads:/var/www/html/uploads
+      - ./api:/var/www/html/api
     depends_on:
       - database
     environment:
