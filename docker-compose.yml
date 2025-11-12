@@ -10,6 +10,7 @@ services:
       - "80:80"
     volumes:
       - ./site:/var/www/html
+      - ./uploads:/var/www/html/uploads
     depends_on:
       - database
     environment:
@@ -27,7 +28,7 @@ services:
       MYSQL_USER: meuusuario
       MYSQL_PASSWORD: minhasenha
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
