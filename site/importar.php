@@ -26,6 +26,28 @@ function connectDB($host, $dbname, $user, $password) {
     }
 }
 
+// Verificar se existe arquivo CSV na pasta
+$csv_dir = __DIR__ . '/importedCSvs/';
+$csv_file = null;
+$file_info = null;
+
+if (file_exists($csv_dir) && is_dir($csv_dir)) {
+    $files = scandir($csv_dir);
+    foreach ($files as $file) {
+        if (pathinfo($file, PATHINFO_EXTENSION) === 'csv') {
+            $csv_file = $file;
+            $file_path = $csv_dir . $file;
+            $file_info = [
+                'nome' => $file,
+                'tamanho' => filesize($file_path),
+                'modificacao' => filemtime($file_path),
+                'caminho' => $file_path
+            ];
+            break;
+        }
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
     try {
         // Testar conexão primeiro
@@ -160,17 +182,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
         .nav a:hover { background: #495057; }
         .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         .upload-area { border: 2px dashed #007bff; border-radius: 10px; padding: 40px; text-align: center; margin: 20px 0; }
+        .upload-area-pasta { border: 2px dashed #28a745; border-radius: 10px; padding: 40px; text-align: center; margin: 20px 0; background: #f8fff9; }
         .form-group { margin: 20px 0; }
         label { display: block; margin-bottom: 8px; font-weight: bold; }
         input[type="file"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
-        button { background: #007bff; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        button { background: #007bff; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; transition: background 0.3s; }
         button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .btn-pasta { background: #28a745; }
+        .btn-pasta:hover { background: #1e7e34; }
         .mensagem { padding: 15px; border-radius: 5px; margin: 15px 0; }
         .sucesso { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .erro { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
         .erros-lista { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0; max-height: 200px; overflow-y: auto; }
         .erro-item { color: #dc3545; margin: 5px 0; font-family: monospace; font-size: 0.9em; }
+        .pasta-status { margin-top: 15px; min-height: 50px; }
+        .file-info { background: #e9ecef; padding: 15px; border-radius: 5px; margin: 10px 0; }
     </style>
 </head>
 <body>
@@ -202,7 +230,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
             </div>
         <?php endif; ?>
 
+        <!-- Informações do Arquivo na Pasta -->
+        <?php if ($file_info): ?>
+        <div class="file-info">
+            <h3>📁 Arquivo CSV na Pasta:</h3>
+            <p><strong>Nome:</strong> <?= $file_info['nome'] ?></p>
+            <p><strong>Tamanho:</strong> <?= number_format($file_info['tamanho'] / 1024, 2) ?> KB</p>
+            <p><strong>Última modificação:</strong> <?= date('d/m/Y H:i:s', $file_info['modificacao']) ?></p>
+        </div>
+        <?php endif; ?>
+
+        <!-- Importar da Pasta -->
+        <?php if ($file_info): ?>
+        <div class="upload-area-pasta">
+            <h2>🔄 Importar da Pasta</h2>
+            <p>Importe automaticamente o arquivo CSV da pasta <code>importedCSvs</code></p>
+            
+            <div class="form-group">
+                <button type="button" onclick="importarDaPasta()" id="btnImportarPasta" class="btn-pasta">
+                    📁 Importar da Pasta
+                </button>
+                <button type="button" onclick="verificarAtualizacao()" class="btn btn-info">
+                    🔍 Verificar Atualização
+                </button>
+            </div>
+            
+            <div id="pastaStatus" class="pasta-status"></div>
+        </div>
+        <?php else: ?>
+        <div class="info mensagem">
+            <h3>📭 Nenhum arquivo CSV na pasta</h3>
+            <p>Coloque um arquivo CSV na pasta <code>importedCSvs</code> para importação automática.</p>
+        </div>
+        <?php endif; ?>
+
+        <!-- Upload Manual -->
         <div class="upload-area">
+            <h2>📁 Upload Manual</h2>
             <form method="POST" enctype="multipart/form-data" id="uploadForm">
                 <div class="form-group">
                     <label for="csv_file">Selecione o arquivo CSV:</label>
@@ -264,7 +328,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
             const file = e.target.files[0];
             if (file) {
                 console.log('Arquivo selecionado:', file.name);
-                // Opcional: mostrar nome do arquivo na interface
                 const fileName = file.name;
                 const fileSize = (file.size / 1024).toFixed(2);
                 alert(`Arquivo selecionado: ${fileName}\nTamanho: ${fileSize} KB`);
@@ -287,6 +350,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
                 return;
             }
         });
+
+        // Função para importar da pasta
+        async function importarDaPasta() {
+            const btn = document.getElementById('btnImportarPasta');
+            const statusDiv = document.getElementById('pastaStatus');
+            
+            btn.disabled = true;
+            btn.innerHTML = '🔄 Importando...';
+            statusDiv.innerHTML = '<div class="info mensagem">🔍 Importando arquivo da pasta...</div>';
+            
+            try {
+                const response = await fetch('/importar_csv_pasta.php');
+                const result = await response.json();
+                
+                if (result.success) {
+                    statusDiv.innerHTML = `<div class="sucesso mensagem">✅ ${result.message}</div>`;
+                    
+                    // Mostrar estatísticas se disponíveis
+                    if (result.estatisticas) {
+                        const stats = result.estatisticas;
+                        statusDiv.innerHTML += `
+                            <div class="info mensagem">
+                                <h4>📊 Estatísticas da Importação:</h4>
+                                <p>📈 Registros importados: ${stats.importados}</p>
+                                <p>⚠️ Registros ignorados: ${stats.ignorados}</p>
+                                <p>❌ Erros encontrados: ${stats.erros}</p>
+                                <p>📄 Arquivo: ${stats.arquivo}</p>
+                            </div>
+                        `;
+                    }
+                    
+                    // Adicionar link para ver dados
+                    statusDiv.innerHTML += `
+                        <div style="text-align: center; margin-top: 15px;">
+                            <a href="/scan.php" style="background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                                🔍 Ver Dados Importados
+                            </a>
+                        </div>
+                    `;
+                    
+                    // Recarregar a página após 3 segundos
+                    setTimeout(() => {
+                        location.reload();
+                    }, 3000);
+                    
+                } else {
+                    statusDiv.innerHTML = `<div class="erro mensagem">❌ ${result.message}</div>`;
+                }
+                
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="erro mensagem">❌ Erro na conexão: ${error.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '📁 Importar da Pasta';
+            }
+        }
+
+        // Função para verificar atualizações
+        async function verificarAtualizacao() {
+            const btn = event.target;
+            const originalText = btn.innerHTML;
+            
+            btn.disabled = true;
+            btn.innerHTML = '🔍 Verificando...';
+            
+            try {
+                const response = await fetch('/verificar_atualizacao.php');
+                const result = await response.json();
+                
+                if (result.arquivo_modificado) {
+                    if (confirm(`📁 Arquivo modificado detectado!\n\nArquivo: ${result.arquivo}\nÚltima modificação: ${result.ultima_modificacao}\n\nDeseja importar agora?`)) {
+                        importarDaPasta();
+                    }
+                } else {
+                    alert('✅ Nenhuma modificação detectada no arquivo CSV.');
+                }
+            } catch (error) {
+                alert('❌ Erro ao verificar atualizações: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
     </script>
 </body>
 </html>
