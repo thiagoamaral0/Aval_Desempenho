@@ -10,7 +10,9 @@ $password = getenv('DB_PASS') ?: 'minhasenha';
 $response = [
     'success' => false,
     'message' => '',
-    'estatisticas' => null
+    'importados' => 0,
+    'total_registros' => 0,
+    'arquivo_modificado' => false
 ];
 
 try {
@@ -32,7 +34,10 @@ try {
     }
     
     if (!$csv_file) {
-        throw new Exception('Nenhum arquivo CSV encontrado na pasta');
+        $response['message'] = 'Nenhum arquivo CSV encontrado na pasta';
+        $response['success'] = true;
+        echo json_encode($response);
+        exit;
     }
     
     $file_path = $csv_dir . $csv_file;
@@ -42,14 +47,45 @@ try {
         throw new Exception('Arquivo CSV não pode ser lido: ' . $csv_file);
     }
     
+    // Obter última modificação do arquivo
+    $ultima_modificacao = filemtime($file_path);
+    
+    // Arquivo para armazenar a última importação
+    $status_file = $csv_dir . 'ultima_importacao.txt';
+    
+    // Ler última importação
+    $ultima_importacao = 0;
+    if (file_exists($status_file)) {
+        $ultima_importacao = (int)file_get_contents($status_file);
+    }
+    
+    // Verificar se o arquivo foi modificado desde a última importação
+    // (com margem de 2 segundos para evitar duplicações)
+    if ($ultima_modificacao <= ($ultima_importacao + 2)) {
+        $response['success'] = true;
+        $response['message'] = 'Nenhuma modificação detectada no arquivo';
+        $response['arquivo_modificado'] = false;
+        
+        // Conectar apenas para pegar o total de registros
+        $conn = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $user, $password);
+        $response['total_registros'] = $conn->query("SELECT COUNT(*) FROM wifi_scan")->fetchColumn();
+        
+        echo json_encode($response);
+        exit;
+    }
+    
+    $response['arquivo_modificado'] = true;
+    
     // Conectar ao banco
     $conn = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $user, $password);
     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     
+    // Obter total atual de registros antes da importação
+    $total_inicial = $conn->query("SELECT COUNT(*) FROM wifi_scan")->fetchColumn();
+    
     // Processar o arquivo CSV
     $importados = 0;
     $ignorados = 0;
-    $erros = [];
     
     if (($handle = fopen($file_path, 'r')) !== FALSE) {
         $linha_numero = 0;
@@ -67,7 +103,6 @@ try {
             
             // Validar número de colunas
             if (count($data) < 4) {
-                $erros[] = "Linha $linha_numero: Número insuficiente de colunas";
                 $ignorados++;
                 continue;
             }
@@ -80,7 +115,6 @@ try {
             
             // Validar campos obrigatórios
             if (empty($local) || empty($usuario) || empty($intensidade_sinal) || empty($endereco_mac)) {
-                $erros[] = "Linha $linha_numero: Campos obrigatórios em branco";
                 $ignorados++;
                 continue;
             }
@@ -88,7 +122,6 @@ try {
             // Validar formato do MAC address
             $mac_clean = str_replace([':', '-'], '', $endereco_mac);
             if (!preg_match('/^[0-9A-Fa-f]{12}$/', $mac_clean)) {
-                $erros[] = "Linha $linha_numero: Formato de MAC address inválido: $endereco_mac";
                 $ignorados++;
                 continue;
             }
@@ -101,32 +134,31 @@ try {
                 $stmt->execute([$local, $usuario, $intensidade_sinal, $endereco_mac_formatado]);
                 $importados++;
             } catch (PDOException $e) {
-                // Verificar se é erro de duplicação
-                if ($e->getCode() == '23000') {
-                    $ignorados++;
-                } else {
-                    $erros[] = "Linha $linha_numero: Erro no banco - " . $e->getMessage();
-                    $ignorados++;
-                }
+                // Ignorar erros de duplicação e outros
+                $ignorados++;
             }
         }
         fclose($handle);
+        
+        // Atualizar arquivo de status da importação
+        file_put_contents($status_file, $ultima_modificacao);
+        
+        // Obter total final de registros
+        $total_final = $conn->query("SELECT COUNT(*) FROM wifi_scan")->fetchColumn();
+        
+        $response['success'] = true;
+        $response['message'] = "Importação automática concluída: $importados novos registros, $ignorados ignorados";
+        $response['importados'] = $importados;
+        $response['ignorados'] = $ignorados;
+        $response['total_registros'] = $total_final;
+        
     } else {
         throw new Exception('Não foi possível abrir o arquivo CSV para leitura');
     }
     
-    // Preparar resposta
-    $response['success'] = true;
-    $response['message'] = "Importação automática concluída";
-    $response['estatisticas'] = [
-        'importados' => $importados,
-        'ignorados' => $ignorados,
-        'erros' => count($erros),
-        'arquivo' => $csv_file
-    ];
-    
 } catch (Exception $e) {
     $response['message'] = "Erro na importação automática: " . $e->getMessage();
+    error_log("Erro importar_csv_auto: " . $e->getMessage());
 }
 
 echo json_encode($response, JSON_UNESCAPED_UNICODE);

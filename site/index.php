@@ -7,18 +7,13 @@ $dbname = getenv('DB_NAME') ?: 'wifiscan';
 $user = getenv('DB_USER') ?: 'meuusuario';
 $password = getenv('DB_PASS') ?: 'minhasenha';
 
-// Verificar se há atualizações automaticamente
-$auto_import = false;
 $mensagem_auto = '';
-
-// Verificar se deve fazer importação automática
-if (isset($_GET['auto_import']) && $_GET['auto_import'] === 'true') {
-    $auto_import = true;
-}
 
 try {
     $conn = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $user, $password);
     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
+    echo "<p style='color: green;'>✅ Conectado ao banco de dados WiFi!</p>";
     
     // Estatisticas rapidas
     $total_registros = $conn->query("SELECT COUNT(*) FROM wifi_scan")->fetchColumn();
@@ -30,7 +25,6 @@ try {
     $csv_dir = __DIR__ . '/importedCSvs/';
     $csv_file = null;
     $file_info = null;
-    $arquivo_modificado = false;
     
     if (file_exists($csv_dir) && is_dir($csv_dir)) {
         $files = scandir($csv_dir);
@@ -47,111 +41,11 @@ try {
                 break;
             }
         }
-        
-        // Verificar se o arquivo foi modificado desde a última importação
-        if ($file_info && $ultimo_registro) {
-            $ultima_importacao = strtotime($ultimo_registro);
-            if ($file_info['modificacao'] > $ultima_importacao) {
-                $arquivo_modificado = true;
-                
-                // Importação automática se solicitada
-                if ($auto_import) {
-                    $resultado = importarCSVAutomaticamente($file_info['caminho'], $conn);
-                    if ($resultado['success']) {
-                        $mensagem_auto = "✅ Importação automática realizada! " . $resultado['message'];
-                        // Atualizar estatísticas após importação
-                        $total_registros = $conn->query("SELECT COUNT(*) FROM wifi_scan")->fetchColumn();
-                        $ultimo_registro = $conn->query("SELECT MAX(data_registro) FROM wifi_scan")->fetchColumn();
-                    } else {
-                        $mensagem_auto = "❌ Erro na importação automática: " . $resultado['message'];
-                    }
-                }
-            }
-        }
     }
     
 } catch(PDOException $e) {
     $error = $e->getMessage();
-}
-
-// Função para importação automática
-function importarCSVAutomaticamente($file_path, $conn) {
-    $resultado = [
-        'success' => false,
-        'message' => '',
-        'importados' => 0,
-        'ignorados' => 0
-    ];
-    
-    try {
-        if (($handle = fopen($file_path, 'r')) !== FALSE) {
-            $linha_numero = 0;
-            $importados = 0;
-            $ignorados = 0;
-            
-            // Preparar statement para inserção
-            $stmt = $conn->prepare("INSERT INTO wifi_scan (local, usuario, intensidade_sinal, endereco_mac) VALUES (?, ?, ?, ?)");
-            
-            while (($data = fgetcsv($handle, 1000, ',')) !== FALSE) {
-                $linha_numero++;
-                
-                // Pular linhas vazias
-                if (count($data) === 1 && empty(trim($data[0]))) {
-                    continue;
-                }
-                
-                // Validar número de colunas
-                if (count($data) < 4) {
-                    $ignorados++;
-                    continue;
-                }
-                
-                // Extrair e validar dados
-                $local = trim($data[0]);
-                $usuario = trim($data[1]);
-                $intensidade_sinal = trim($data[2]);
-                $endereco_mac = trim($data[3]);
-                
-                // Validar campos obrigatórios
-                if (empty($local) || empty($usuario) || empty($intensidade_sinal) || empty($endereco_mac)) {
-                    $ignorados++;
-                    continue;
-                }
-                
-                // Validar formato do MAC address
-                $mac_clean = str_replace([':', '-'], '', $endereco_mac);
-                if (!preg_match('/^[0-9A-Fa-f]{12}$/', $mac_clean)) {
-                    $ignorados++;
-                    continue;
-                }
-                
-                // Formatar MAC address
-                $endereco_mac_formatado = implode(':', str_split($mac_clean, 2));
-                
-                try {
-                    // Inserir no banco
-                    $stmt->execute([$local, $usuario, $intensidade_sinal, $endereco_mac_formatado]);
-                    $importados++;
-                } catch (PDOException $e) {
-                    $ignorados++;
-                }
-            }
-            fclose($handle);
-            
-            $resultado['success'] = true;
-            $resultado['message'] = "$importados registros importados, $ignorados ignorados";
-            $resultado['importados'] = $importados;
-            $resultado['ignorados'] = $ignorados;
-            
-        } else {
-            throw new Exception("Não foi possível abrir o arquivo CSV");
-        }
-        
-    } catch (Exception $e) {
-        $resultado['message'] = $e->getMessage();
-    }
-    
-    return $resultado;
+    echo "<p style='color: red;'>❌ Erro na conexao: " . $error . "</p>";
 }
 ?>
 <!DOCTYPE html>
@@ -174,9 +68,6 @@ function importarCSVAutomaticamente($file_path, $conn) {
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             margin-bottom: 20px;
         }
-        .success { color: #28a745; font-weight: bold; }
-        .error { color: #dc3545; }
-        .warning { color: #ffc107; }
         .nav { 
             background: #343a40; 
             padding: 15px; 
@@ -217,9 +108,6 @@ function importarCSVAutomaticamente($file_path, $conn) {
             margin: 20px 0;
             cursor: pointer;
         }
-        .upload-area:hover {
-            background: #e9ecef;
-        }
         .action-buttons {
             text-align: center;
             margin: 30px 0;
@@ -232,9 +120,6 @@ function importarCSVAutomaticamente($file_path, $conn) {
             border-radius: 5px;
             font-weight: bold;
             transition: all 0.3s;
-            border: none;
-            cursor: pointer;
-            font-size: 14px;
         }
         .btn-primary {
             background: #007bff;
@@ -264,12 +149,30 @@ function importarCSVAutomaticamente($file_path, $conn) {
         .btn-warning:hover {
             background: #e0a800;
         }
-        .btn-info {
-            background: #17a2b8;
-            color: white;
+        .file-info {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
         }
-        .btn-info:hover {
-            background: #138496;
+        .auto-update-status {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        #notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: none;
         }
         .mensagem {
             padding: 15px;
@@ -285,37 +188,6 @@ function importarCSVAutomaticamente($file_path, $conn) {
             background: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
-        }
-        .info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
-        }
-        .file-info {
-            background: #e9ecef;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 10px 0;
-        }
-        .auto-update-status {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 5px;
-            padding: 10px;
-            margin: 10px 0;
-            text-align: center;
-        }
-        #notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #28a745;
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            z-index: 1000;
-            display: none;
         }
     </style>
 </head>
@@ -333,25 +205,15 @@ function importarCSVAutomaticamente($file_path, $conn) {
 
     <div class="container">
         <h1>📡 Sistema de Importacao WiFi Scan</h1>
-        
-        <?php if(isset($conn)): ?>
-            <p class='success'>✅ Conectado ao banco de dados WiFi!</p>
-        <?php else: ?>
-            <p class='error'>❌ Erro na conexao: <?= $error ?? 'Desconhecido' ?></p>
-        <?php endif; ?>
-
-        <?php if ($mensagem_auto): ?>
-            <div class="mensagem <?= strpos($mensagem_auto, '✅') !== false ? 'sucesso' : 'erro' ?>">
-                <?= $mensagem_auto ?>
-            </div>
-        <?php endif; ?>
 
         <!-- Status de Atualização Automática -->
         <div class="auto-update-status">
             <strong>🔄 Atualização Automática Ativa</strong>
-            <p>O sistema verifica automaticamente por atualizações a cada 30 segundos</p>
-            <div id="lastCheck">Última verificação: <span id="lastCheckTime">Agora</span></div>
-            <div id="updateStatus"></div>
+            <p>O sistema verifica e importa automaticamente a cada 15 segundos</p>
+            <div id="statusInfo">
+                <div>Última verificação: <span id="lastCheckTime">Agora</span></div>
+                <div>Status: <span id="updateStatus">Verificando...</span></div>
+            </div>
         </div>
         
         <!-- Informações do Arquivo CSV -->
@@ -360,17 +222,11 @@ function importarCSVAutomaticamente($file_path, $conn) {
             <h3>📁 Arquivo CSV Monitorado:</h3>
             <p><strong>Nome:</strong> <?= $file_info['nome'] ?></p>
             <p><strong>Tamanho:</strong> <?= number_format($file_info['tamanho'] / 1024, 2) ?> KB</p>
-            <p><strong>Última modificação:</strong> <?= date('d/m/Y H:i:s', $file_info['modificacao']) ?></p>
-            
-            <?php if ($arquivo_modificado && !$auto_import): ?>
-                <div class="warning mensagem">
-                    <strong>🔄 Atualização Disponível!</strong>
-                    <p>O arquivo CSV foi modificado. A importação automática será realizada em breve.</p>
-                </div>
-            <?php endif; ?>
+            <p><strong>Última modificação:</strong> <span id="fileModTime"><?= date('d/m/Y H:i:s', $file_info['modificacao']) ?></span></p>
+            <p><strong>Status:</strong> <span id="fileStatus">Monitorando...</span></p>
         </div>
         <?php else: ?>
-        <div class="info mensagem">
+        <div class="mensagem erro">
             <h3>📭 Nenhum arquivo CSV encontrado</h3>
             <p>Coloque um arquivo CSV na pasta <code>importedCSvs</code> para monitoramento automático.</p>
         </div>
@@ -378,7 +234,7 @@ function importarCSVAutomaticamente($file_path, $conn) {
         
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-number"><?= $total_registros ?? 0 ?></div>
+                <div class="stat-number" id="totalRegistros"><?= $total_registros ?? 0 ?></div>
                 <div>Total de Registros</div>
             </div>
             <div class="stat-card">
@@ -426,7 +282,7 @@ function importarCSVAutomaticamente($file_path, $conn) {
                         <th style="padding: 12px; text-align: left;">Data</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="ultimosRegistros">
                     <?php foreach($ultimos as $registro): ?>
                     <tr style="border-bottom: 1px solid #ddd;">
                         <td style="padding: 10px;"><?= htmlspecialchars($registro['local']) ?></td>
@@ -457,6 +313,9 @@ function importarCSVAutomaticamente($file_path, $conn) {
     </div>
 
     <script>
+        let lastImportTime = 0;
+        let isImporting = false;
+
         // Função para mostrar notificação
         function showNotification(message, type = 'success') {
             const notification = document.getElementById('notification');
@@ -469,60 +328,59 @@ function importarCSVAutomaticamente($file_path, $conn) {
             }, 5000);
         }
 
-        // Função para verificar atualizações automaticamente
-        async function verificarAtualizacoes() {
+        // Função para verificar e importar automaticamente
+        async function checkAndImportAuto() {
+            if (isImporting) {
+                return; // Já está importando, evitar duplicação
+            }
+
             try {
-                const response = await fetch('/verificar_atualizacao_auto.php');
-                const result = await response.json();
-                
+                document.getElementById('updateStatus').innerHTML = '<span style="color: #6c757d;">🔍 Verificando...</span>';
                 document.getElementById('lastCheckTime').textContent = new Date().toLocaleTimeString();
                 
-                if (result.arquivo_modificado) {
-                    document.getElementById('updateStatus').innerHTML = 
-                        '<span style="color: #dc3545;">🔄 Arquivo modificado detectado! Importando...</span>';
-                    
-                    // Fazer importação automática
-                    const importResponse = await fetch('/importar_csv_auto.php');
-                    const importResult = await importResponse.json();
-                    
-                    if (importResult.success) {
-                        document.getElementById('updateStatus').innerHTML = 
-                            '<span style="color: #28a745;">✅ Importação automática realizada: ' + 
-                            importResult.estatisticas.importados + ' registros</span>';
+                isImporting = true;
+
+                // Chamar o importador automático diretamente
+                const response = await fetch('/importar_csv_auto.php?auto=true&t=' + Date.now());
+                const result = await response.json();
+                
+                if (result.success) {
+                    if (result.importados > 0) {
+                        document.getElementById('updateStatus').innerHTML = '<span style="color: #28a745;">✅ ' + result.importados + ' novos registros</span>';
+                        document.getElementById('fileStatus').innerHTML = '<span style="color: #28a745;">✅ Atualizado</span>';
+                        document.getElementById('totalRegistros').textContent = result.total_registros;
                         
-                        showNotification('✅ Dados atualizados automaticamente! ' + 
-                                       importResult.estatisticas.importados + ' novos registros', 'success');
+                        showNotification('✅ ' + result.importados + ' registros importados automaticamente!', 'success');
                         
-                        // Recarregar a página após 2 segundos para mostrar novos dados
+                        // Recarregar a página para mostrar todos os dados atualizados
                         setTimeout(() => {
                             location.reload();
                         }, 2000);
-                        
                     } else {
-                        document.getElementById('updateStatus').innerHTML = 
-                            '<span style="color: #dc3545;">❌ Erro na importação: ' + importResult.message + '</span>';
+                        document.getElementById('updateStatus').innerHTML = '<span style="color: #6c757d;">✅ Nenhuma atualização necessária</span>';
+                        document.getElementById('fileStatus').innerHTML = '<span style="color: #6c757d;">✅ Atualizado</span>';
                     }
                 } else {
-                    document.getElementById('updateStatus').innerHTML = 
-                        '<span style="color: #6c757d;">✅ Nenhuma modificação detectada</span>';
+                    document.getElementById('updateStatus').innerHTML = '<span style="color: #dc3545;">❌ Erro: ' + result.message + '</span>';
+                    document.getElementById('fileStatus').innerHTML = '<span style="color: #dc3545;">❌ Erro</span>';
                 }
+                
             } catch (error) {
                 console.error('Erro na verificação automática:', error);
-                document.getElementById('updateStatus').innerHTML = 
-                    '<span style="color: #dc3545;">❌ Erro na verificação</span>';
+                document.getElementById('updateStatus').innerHTML = '<span style="color: #dc3545;">❌ Erro de conexão</span>';
+            } finally {
+                isImporting = false;
             }
         }
 
-        // Verificar a cada 30 segundos
-        setInterval(verificarAtualizacoes, 30000);
+        // Verificar a cada 15 segundos
+        setInterval(checkAndImportAuto, 15000);
         
         // Verificar imediatamente ao carregar a página
         document.addEventListener('DOMContentLoaded', function() {
-            verificarAtualizacoes();
-        });
-
-        // Adicionar confirmação para o botão de limpar banco
-        document.addEventListener('DOMContentLoaded', function() {
+            checkAndImportAuto();
+            
+            // Adicionar confirmação para o botão de limpar banco
             const btnLimpar = document.querySelector('a[href="/limpar.php"]');
             if (btnLimpar) {
                 btnLimpar.addEventListener('click', function(e) {
